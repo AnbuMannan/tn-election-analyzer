@@ -1,0 +1,9 @@
+node_modules
+client/node_modules
+client/build
+.git
+*.pdf
+*.png
+*.jpg
+.env
+.DS_Store

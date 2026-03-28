@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: tn-election-analyzer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 3001
+    healthCheckPath: /health
