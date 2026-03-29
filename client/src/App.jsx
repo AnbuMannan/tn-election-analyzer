@@ -9,8 +9,16 @@ import {
   Target, BarChart2, Users, Award, Zap, Search, X, RefreshCw,
   Activity, Table, PieChart as PieIcon, Shield, Crosshair,
   Mail, Download, FileSpreadsheet, Image,
-  MapPin, Info, ChevronDown, ChevronUp,
+  MapPin, Info, ChevronDown, ChevronUp, ExternalLink, Flag,
 } from 'lucide-react';
+
+/* ── CSV Export Helper ─────────────────────────────────────────── */
+const downloadCSV = (headers, rows, filename) => {
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = filename; a.click();
+};
 
 /* ── Palette — Tamil Nadu Govt + PMK Theme ────────────────────── */
 /* PMK Flag: Blue (top) #1B4F9E | Yellow (middle) #FFD700 | Red (bottom) #DC2626 */
@@ -150,15 +158,17 @@ function ExportButton({ tabId, data, boothData, totals, mapping, constituency })
   const exportCSV = () => {
     let csv = '', rows = [], headers = [];
     if (tabId === 'booths' || tabId === 'swing') {
-      headers = ['Booth','Locality','DMK Alliance','NDA Alliance','Others','NOTA','Total','Margin','Classification','DMK%','NDA%'];
+      headers = ['Booth','Locality','Pincode','Building','DMK Alliance','NDA Alliance','Others','NOTA','Total','Margin','Classification','DMK%','NDA%','Polling Area'];
       rows = boothData.map(b => [
-        b.booth, b.locality||'', b['DMK Alliance'], b['NDA Alliance'], b.Others, b.NOTA, b.total,
-        b.margin, b.classification, b.dmkPct+'%', b.ndaPct+'%'
+        b.booth, b.info?.locality||'', b.info?.pincode||'', b.info?.building||'',
+        b['DMK Alliance'], b['NDA Alliance'], b.Others, b.NOTA, b.total,
+        b.margin, b.classification, b.dmkPct+'%', b.ndaPct+'%',
+        (b.info?.area||'').replace(/\n/g, ' | ')
       ]);
     } else if (tabId === 'candidates') {
-      headers = ['Rank','Candidate','Alliance','EVM Votes','Postal Votes','Total Votes','Share%'];
-      const cands = (data.candidateColumns||[]).map((col,i)=>({col,i,total:data.candidateTotals?.[i]||0,evm:data.evmCandidateTotals?.[i]||0,postal:data.postalVotes?.[i]||0,alliance:mapping[i]||'Others'})).sort((a,b)=>b.total-a.total);
-      rows = cands.map((c,rank)=>[rank+1,c.col,c.alliance,c.evm,c.postal,c.total,pct(c.total,totals.total)+'%']);
+      headers = ['Rank','Candidate','Party','Alliance','EVM Votes','Postal Votes','Total Votes','Share%'];
+      const cands = (data.candidateColumns||[]).map((col,i)=>({col,i,total:data.candidateTotals?.[i]||0,evm:data.evmCandidateTotals?.[i]||0,postal:data.postalVotes?.[i]||0,alliance:mapping[i]||'Others',party:data.partyMap?.[String(i)]||'IND'})).sort((a,b)=>b.total-a.total);
+      rows = cands.map((c,rank)=>[rank+1,c.col,c.party,c.alliance,c.evm,c.postal,c.total,pct(c.total,totals.total)+'%']);
     } else {
       headers = ['Metric','Value'];
       rows = [
@@ -294,6 +304,13 @@ function UploadStep({onParsed, onDemo}) {
             <button onClick={onDemo} style={{background:'#F9FAFB',border:'1px solid #D1D5DB',color:C.text,borderRadius:12,padding:'10px 20px',fontSize:13,fontWeight:600,width:'100%',marginTop:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
               <span style={{color:C.pmkBlue}}>&#9670;</span> Demo Mode &mdash; Dharmapuri 2021
             </button>
+            <div style={{borderTop:'1px solid #E5E7EB',marginTop:14,paddingTop:14}}>
+              <p style={{color:C.muted,fontSize:11,textAlign:'center',marginBottom:8}}>Don't have a Form 20 PDF? Download from Election Commission:</p>
+              <a href="https://www.elections.tn.gov.in/Form20_TNLA2021.aspx?" target="_blank" rel="noopener noreferrer"
+                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,background:'#EFF6FF',border:'1px solid #BFDBFE',color:C.pmkBlue,borderRadius:12,padding:'10px 20px',fontSize:13,fontWeight:600,width:'100%',cursor:'pointer',textDecoration:'none',boxSizing:'border-box'}}>
+                <ExternalLink size={14}/> Download 2021 Form 20 PDFs (TN CEO Website)
+              </a>
+            </div>
           </div>
           <div style={{display:'flex',flexWrap:'wrap',gap:6,justifyContent:'center',marginTop:16}}>
             {['Auto Party Detection','Both Formats','Postal Votes','Booth Names','Export CSV/PNG'].map(f=>
@@ -386,12 +403,13 @@ function MappingStep({data,onMapped}) {
 
 /* ── STEP 3: Dashboard ──────────────────────────────────────────── */
 const TABS=[
-  {id:'overview',     label:'Overview',       icon:PieIcon},
-  {id:'booths',       label:'Booth Analysis', icon:Table},
-  {id:'swing',        label:'Swing & Critical',icon:Crosshair},
-  {id:'candidates',   label:'Candidates',     icon:Users},
-  {id:'trends',       label:'Trends',         icon:Activity},
-  {id:'accuracy',     label:'Data Verify',    icon:CheckCircle},
+  {id:'overview',     label:'Overview',           icon:PieIcon},
+  {id:'booths',       label:'Booth Analysis',     icon:Table},
+  {id:'swing',        label:'Swing & Critical',   icon:Crosshair},
+  {id:'strategy',     label:'Campaign Strategy',  icon:Flag},
+  {id:'candidates',   label:'Candidates',         icon:Users},
+  {id:'trends',       label:'Trends',             icon:Activity},
+  {id:'accuracy',     label:'Data Verify',        icon:CheckCircle},
 ];
 
 function Dashboard({data, mapping}) {
@@ -527,7 +545,22 @@ function Dashboard({data, mapping}) {
   const donut=[{name:'DMK Alliance',value:totals.dmk},{name:'NDA Alliance',value:totals.nda},{name:'Others',value:totals.others},{name:'NOTA',value:totals.nota}].filter(d=>d.value>0);
   const topBar=useMemo(()=>[...boothData].sort((a,b)=>Math.abs(b.margin)-Math.abs(a.margin)).slice(0,14).map(b=>({name:b.short.slice(0,12),DMK:b['DMK Alliance'],NDA:b['NDA Alliance']})),[boothData]);
   const trendData=useMemo(()=>{const s=Math.max(1,Math.floor(boothData.length/60));return boothData.filter((_,i)=>i%s===0).map(b=>({name:b.short.slice(0,8),DMK:b['DMK Alliance'],NDA:b['NDA Alliance']}));},[boothData]);
-  const candData=useMemo(()=>(data.candidateColumns||[]).map((col,i)=>({name:col,total:data.candidateTotals?.[i]||0,evm:data.evmCandidateTotals?.[i]||0,postal:data.postalVotes?.[i]||0,alliance:mapping[i]||'Others',party:data.partyMap?.[String(i)]||'IND',pct:+pct(data.candidateTotals?.[i]||0,totals.total)})).filter(c=>c.total>0).sort((a,b)=>b.total-a.total),[data,mapping,totals.total]);
+  const candData=useMemo(()=>{
+    // Build party lookup: try partyMap index, then extract from candidate column name
+    const getParty = (col, i) => {
+      // First try partyMap
+      if (data.partyMap?.[String(i)]) return data.partyMap[String(i)];
+      // Extract from "NAME (PARTY)" format
+      const m = col.match(/\(([^)]+)\)\s*$/);
+      if (m) return m[1].trim();
+      return 'IND';
+    };
+    return (data.candidateColumns||[]).map((col,i)=>({
+      name:col, total:data.candidateTotals?.[i]||0, evm:data.evmCandidateTotals?.[i]||0,
+      postal:data.postalVotes?.[i]||0, alliance:mapping[i]||'Others',
+      party:getParty(col,i), pct:+pct(data.candidateTotals?.[i]||0,totals.total)
+    })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
+  },[data,mapping,totals.total]);
 
   const lc=totals.leader==='DMK Alliance'?C.dmk:C.nda;
 
@@ -871,16 +904,23 @@ function Dashboard({data, mapping}) {
           </span>
         </div>
 
-        {/* Summary pills */}
+        {/* Summary pills with individual exports */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
           {[
-            {l:`Critical (${critical.length})`,c:C.lose,sub:'Can flip with minor effort'},
-            {l:`Swing (${swing.length})`,c:C.others,sub:'Contestable with campaign'},
-            {l:`Stronghold (${strongh.length})`,c:C.win,sub:'Safe — maximise turnout'},
-          ].map(({l,c,sub})=>(
+            {l:'Critical',cnt:critical.length,c:C.lose,sub:'Can flip with minor effort',items:critical},
+            {l:'Swing',cnt:swing.length,c:C.others,sub:'Contestable with campaign',items:swing},
+            {l:'Stronghold',cnt:strongh.length,c:C.win,sub:'Safe — maximise turnout',items:strongh},
+          ].map(({l,cnt,c,sub,items})=>(
             <div key={l} style={{background:c+'12',border:`1px solid ${c}28`,borderRadius:10,padding:'10px 14px',textAlign:'center'}}>
-              <div style={{color:c,fontWeight:800,fontSize:16,fontFamily:"'Merriweather',serif"}}>{l}</div>
+              <div style={{color:c,fontWeight:800,fontSize:16,fontFamily:"'Merriweather',serif"}}>{l} ({cnt})</div>
               <div style={{color:C.muted,fontSize:10,marginTop:2}}>{sub}</div>
+              <button onClick={()=>{
+                const hdr=['Booth','Locality','Pincode','Building','DMK Alliance','NDA Alliance','Others','NOTA','Total','Margin','Leader','DMK%','NDA%','Polling Area'];
+                const rws=items.map(b=>[b.booth,b.info?.locality||'',b.info?.pincode||'',b.info?.building||'',b['DMK Alliance'],b['NDA Alliance'],b.Others,b.NOTA,b.total,b.margin,b.leader,b.dmkPct+'%',b.ndaPct+'%',(b.info?.area||'').replace(/\n/g,' | ')]);
+                downloadCSV(hdr,rws,`${data.constituency.replace(/\s/g,'-')}-${l}-booths.csv`);
+              }} style={{marginTop:6,background:c+'18',color:c,border:`1px solid ${c}33`,borderRadius:6,padding:'3px 10px',fontSize:10,fontWeight:600,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4}}>
+                <Download size={10}/> Export {l} CSV
+              </button>
             </div>
           ))}
         </div>
@@ -986,21 +1026,87 @@ function Dashboard({data, mapping}) {
   const Trends=()=>{
     const dist=[{r:'0-50',n:boothData.filter(b=>Math.abs(b.margin)<=50).length},{r:'51-100',n:boothData.filter(b=>Math.abs(b.margin)>50&&Math.abs(b.margin)<=100).length},{r:'101-200',n:boothData.filter(b=>Math.abs(b.margin)>100&&Math.abs(b.margin)<=200).length},{r:'201-500',n:boothData.filter(b=>Math.abs(b.margin)>200&&Math.abs(b.margin)<=500).length},{r:'500+',n:boothData.filter(b=>Math.abs(b.margin)>500).length}];
     const marginLine=boothData.filter((_,i)=>i%Math.max(1,Math.floor(boothData.length/80))===0).map((b,i)=>({i:i+1,margin:b.margin}));
+    const sorted=[...boothData].sort((a,b)=>b.total-a.total);
+    const top10=sorted.slice(0,10);
+    const bottom10=[...boothData].sort((a,b)=>a.total-b.total).slice(0,10);
+    const avgVotes=Math.round(evmT.total/(boothData.length||1));
+
+    // Locality dominance analysis
+    const locMap={};
+    boothData.forEach(b=>{
+      const loc=b.info?.locality||'Unknown';
+      if(!locMap[loc]) locMap[loc]={loc,dmk:0,nda:0,others:0,total:0,booths:0};
+      locMap[loc].dmk+=b['DMK Alliance'];
+      locMap[loc].nda+=b['NDA Alliance'];
+      locMap[loc].others+=b.Others;
+      locMap[loc].total+=b.total;
+      locMap[loc].booths++;
+    });
+    const locData=Object.values(locMap).filter(l=>l.booths>=2).sort((a,b)=>b.total-a.total).slice(0,12);
+
+    // Vote concentration: what % of total votes come from top 20% booths
+    const top20pct=Math.ceil(boothData.length*0.2);
+    const top20votes=sorted.slice(0,top20pct).reduce((s,b)=>s+b.total,0);
+    const top20share=+pct(top20votes,evmT.total);
+
     return (
       <div id="tab-content-trends" style={{padding:20,display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(155px,1fr))',gap:10}}>
-          {[{l:'Avg EVM/Booth',v:fmt(Math.round(evmT.total/(boothData.length||1))),c:C.accent},{l:'Highest Booth',v:fmt(Math.max(...boothData.map(b=>b.total))),c:C.win},{l:'DMK-led',v:boothData.filter(b=>b.leader==='DMK').length,c:C.dmk},{l:'NDA-led',v:boothData.filter(b=>b.leader==='NDA').length,c:C.nda},{l:'Total EVM NOTA',v:fmt(evmT.nota),c:C.nota},{l:'Total Postal',v:fmt(postalT.total),c:C.postal}].map(({l,v,c})=>(
-            <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'12px 14px',textAlign:'center'}}>
-              <div style={{color:c,fontFamily:"'Merriweather',serif",fontSize:19,fontWeight:800}}>{v}</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(145px,1fr))',gap:10}}>
+          {[
+            {l:'Avg Votes/Booth',v:fmt(avgVotes),c:C.accent},
+            {l:'Highest Booth',v:fmt(sorted[0]?.total||0),c:C.win},
+            {l:'Lowest Booth',v:fmt(bottom10[0]?.total||0),c:C.lose},
+            {l:'DMK-led Booths',v:boothData.filter(b=>b.leader==='DMK').length,c:C.dmk},
+            {l:'NDA-led Booths',v:boothData.filter(b=>b.leader==='NDA').length,c:C.nda},
+            {l:'Top 20% = '+top20share+'%',v:'Vote Share',c:C.tnSaffron},
+            {l:'Total EVM NOTA',v:fmt(evmT.nota),c:C.nota},
+            {l:'Total Postal',v:fmt(postalT.total),c:C.postal},
+          ].map(({l,v,c})=>(
+            <div key={l} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'12px 14px',textAlign:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+              <div style={{color:c,fontFamily:"'Merriweather',serif",fontSize:18,fontWeight:800}}>{v}</div>
               <div style={{color:C.muted,fontSize:10,marginTop:2}}>{l}</div>
             </div>
           ))}
         </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <Card>
+            <ST icon={TrendingUp}>Top 10 Highest-Vote Booths</ST>
+            {top10.map((b,i)=>(
+              <div key={b.booth} onClick={()=>{setTab('booths');setSelBooth(b.booth);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 4px',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{background:C.win+'15',color:C.win,borderRadius:4,padding:'2px 6px',fontSize:9,fontWeight:700}}>{i+1}</span>
+                  <div>
+                    <p style={{color:C.text,fontSize:11,fontWeight:600}}>B{b.booth} {b.info?.locality||''}</p>
+                    <p style={{color:C.muted,fontSize:9}}>DMK {fmt(b['DMK Alliance'])} · NDA {fmt(b['NDA Alliance'])}</p>
+                  </div>
+                </div>
+                <div style={{color:C.win,fontSize:13,fontWeight:700}}>{fmt(b.total)}</div>
+              </div>
+            ))}
+          </Card>
+          <Card>
+            <ST icon={AlertCircle}>Bottom 10 Lowest-Vote Booths</ST>
+            {bottom10.map((b,i)=>(
+              <div key={b.booth} onClick={()=>{setTab('booths');setSelBooth(b.booth);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 4px',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{background:C.lose+'15',color:C.lose,borderRadius:4,padding:'2px 6px',fontSize:9,fontWeight:700}}>{i+1}</span>
+                  <div>
+                    <p style={{color:C.text,fontSize:11,fontWeight:600}}>B{b.booth} {b.info?.locality||''}</p>
+                    <p style={{color:C.muted,fontSize:9}}>{b.classification} · {b.leader} leads</p>
+                  </div>
+                </div>
+                <div style={{color:C.lose,fontSize:13,fontWeight:700}}>{fmt(b.total)}</div>
+              </div>
+            ))}
+          </Card>
+        </div>
+
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
           <Card><ST icon={BarChart2}>Margin Distribution</ST>
             <ResponsiveContainer width="100%" height={200}><BarChart data={dist} margin={{top:5,right:5,left:0,bottom:5}}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="r" tick={{fill:C.muted,fontSize:10}}/><YAxis tick={{fill:C.muted,fontSize:9}}/><Tooltip content={<Tip/>}/><Bar dataKey="n" fill={C.others} radius={[3,3,0,0]} name="Booths"/></BarChart></ResponsiveContainer>
           </Card>
-          <Card><ST icon={Activity}>Running Margin</ST>
+          <Card><ST icon={Activity}>Running Margin Across Booths</ST>
             <ResponsiveContainer width="100%" height={200}><AreaChart data={marginLine} margin={{top:5,right:5,left:0,bottom:5}}>
               <defs><linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.accent} stopOpacity={.3}/><stop offset="95%" stopColor={C.accent} stopOpacity={0}/></linearGradient></defs>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="i" tick={{fill:C.muted,fontSize:8}}/><YAxis tick={{fill:C.muted,fontSize:9}}/><Tooltip content={<Tip/>}/>
@@ -1008,6 +1114,31 @@ function Dashboard({data, mapping}) {
             </AreaChart></ResponsiveContainer>
           </Card>
         </div>
+
+        {locData.length>0&&<Card>
+          <ST icon={MapPin}>Locality-wise Alliance Dominance (2+ booths)</ST>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead><tr style={{borderBottom:`2px solid ${C.border}`}}>
+                {['Locality','Booths','DMK','NDA','Others','Total','Dominant'].map(h=><th key={h} style={{padding:'8px 10px',textAlign:'left',color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{locData.map((l,i)=>{
+                const dom=l.dmk>l.nda?'DMK':'NDA';
+                const domC=dom==='DMK'?C.dmk:C.nda;
+                return <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:i%2?'#F9FAFB':'transparent'}}>
+                  <td style={{padding:'6px 10px',color:C.text,fontWeight:600}}>{l.loc}</td>
+                  <td style={{padding:'6px 10px',color:C.muted}}>{l.booths}</td>
+                  <td style={{padding:'6px 10px',color:C.dmk,fontWeight:600}}>{fmt(l.dmk)}</td>
+                  <td style={{padding:'6px 10px',color:C.nda,fontWeight:600}}>{fmt(l.nda)}</td>
+                  <td style={{padding:'6px 10px',color:C.others}}>{fmt(l.others)}</td>
+                  <td style={{padding:'6px 10px',color:C.text,fontWeight:700}}>{fmt(l.total)}</td>
+                  <td style={{padding:'6px 10px'}}><Badge t={dom} c={domC}/></td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+        </Card>}
+
         {hasPostal&&<Card><ST icon={Mail}>Postal Distribution by Candidate</ST>
           <ResponsiveContainer width="100%" height={160}><BarChart data={candData.filter(c=>c.postal>0)} layout="vertical" margin={{top:0,right:40,left:10,bottom:0}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/><XAxis type="number" tick={{fill:C.muted,fontSize:9}}/><YAxis type="category" dataKey="name" tick={{fill:C.text,fontSize:9}} width={160}/><Tooltip content={<Tip/>}/>
@@ -1020,74 +1151,63 @@ function Dashboard({data, mapping}) {
 
   /* ── Data Verify Tab ── */
   const Accuracy=()=>{
-    // Our computed EVM totals from booth-level data
+    // Authoritative source: evmCandidateTotals from parser = sum from booth rows per candidate
+    const offEVM = (data.evmCandidateTotals||[]).reduce((s,v)=>s+(v||0),0);
+    const offPostal = (data.postalVotes||[]).reduce((s,v)=>s+(v||0),0);
+    const offCombined = (data.candidateTotals||[]).reduce((s,v)=>s+(v||0),0);
+
+    // Our dashboard computed totals (from alliance mapping)
     const ourEVM = evmT.total;
-    // Our computed postal from postal votes array
     const ourPostal = postalT.total;
-    // Our combined
     const ourCombined = totals.total;
-
-    // Official values from Form 20 summary row (set by parser)
-    // If parser provided officialEVM, use it; else fall back to sum of evmCandidateTotals
-    const offEVMFromCandidates = (data.evmCandidateTotals||[]).reduce((s,v)=>s+(v||0),0);
-    const offPostalFromArr = (data.postalVotes||[]).reduce((s,v)=>s+(v||0),0);
-    const offCombinedFromCandidates = (data.candidateTotals||[]).reduce((s,v)=>s+(v||0),0);
-
-    const offEVM = data.officialEVM || offEVMFromCandidates || ourEVM;
-    const offPostal = data.officialPostal || offPostalFromArr || ourPostal;
-    const offCombined = data.officialCombined || offCombinedFromCandidates || ourCombined;
 
     const match=(a,b)=>a===b;
     const pctOff=(a,b)=>b>0?((Math.abs(a-b)/b)*100).toFixed(3):0;
     const topCands=candData.slice(0,5);
 
-    // NOTA & Rejected from data
-    const ourNOTA = data.totalNOTA || evmT.nota;
+    const ourNOTA = data.totalNOTA || 0;
     const ourRejected = data.totalRejected || 0;
 
     return (
       <div id="tab-content-accuracy" style={{padding:20,display:'flex',flexDirection:'column',gap:14}}>
         <Card>
-          <ST icon={CheckCircle}>Vote Count Verification — Form 20 Official vs Our Parse</ST>
+          <ST icon={CheckCircle}>Vote Count Verification — Parser Totals vs Dashboard Computed</ST>
+          <p style={{color:C.muted,fontSize:11,marginBottom:12}}>Parser sums each candidate's votes across all booths. Dashboard groups them by alliance. Both should match.</p>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
             {[
-              {l:'EVM Valid Votes (Candidates)',our:ourEVM,off:offEVM,c:C.dmk},
+              {l:'EVM Candidate Votes',our:ourEVM,off:offEVM,c:C.dmk},
               {l:'Postal Votes',our:ourPostal,off:offPostal,c:C.postal},
-              {l:'Total Combined (EVM+Postal)',our:ourCombined,off:offCombined,c:C.accent},
+              {l:'Total (EVM+Postal)',our:ourCombined,off:offCombined,c:C.accent},
             ].map(({l,our,off,c})=>(
-              <div key={l} style={{background:match(our,off)?C.win+'12':C.lose+'12',border:`1px solid ${match(our,off)?C.win:C.lose}33`,borderRadius:12,padding:'14px'}}>
+              <div key={l} style={{background:match(our,off)?'#F0FDF4':'#FEF2F2',border:`1px solid ${match(our,off)?'#BBF7D0':'#FECACA'}`,borderRadius:12,padding:'14px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
                   <span style={{color:C.muted,fontSize:11}}>{l}</span>
                   <span style={{fontSize:12,fontWeight:700,color:match(our,off)?C.win:C.lose}}>{match(our,off)?'✓ MATCH':'⚠ DIFF'}</span>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                  <div><div style={{color:C.muted,fontSize:9}}>Our Computed</div><div style={{color:c,fontWeight:800,fontSize:16}}>{fmt(our)}</div></div>
-                  <div><div style={{color:C.muted,fontSize:9}}>Form 20 Summary</div><div style={{color:C.text,fontWeight:800,fontSize:16}}>{fmt(off)}</div></div>
+                  <div><div style={{color:C.muted,fontSize:9}}>Dashboard</div><div style={{color:c,fontWeight:800,fontSize:16}}>{fmt(our)}</div></div>
+                  <div><div style={{color:C.muted,fontSize:9}}>Parser Sum</div><div style={{color:C.text,fontWeight:800,fontSize:16}}>{fmt(off)}</div></div>
                 </div>
-                {!match(our,off)&&<div style={{color:C.lose,fontSize:10,marginTop:6}}>Difference: {fmt(Math.abs(our-off))} ({pctOff(our,off)}%)</div>}
+                {!match(our,off)&&<div style={{color:C.lose,fontSize:10,marginTop:6}}>Difference: {fmt(Math.abs(our-off))} ({pctOff(our,off)}%) — check alliance mapping</div>}
               </div>
             ))}
           </div>
-          <div style={{background:C.surface,borderRadius:10,padding:'12px 14px'}}>
-            <p style={{color:C.muted,fontSize:11,marginBottom:8,fontWeight:600}}>Top 5 Candidates — EVM Vote Verification</p>
+          <div style={{background:'#F9FAFB',borderRadius:10,padding:'12px 14px'}}>
+            <p style={{color:C.muted,fontSize:11,marginBottom:8,fontWeight:600}}>Top 5 Candidates — Vote Verification</p>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>{['Candidate','Our EVM Sum','Official EVM*','Postal','Total','Status'].map(h=><th key={h} style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>{['Candidate','Party','EVM','Postal','Total','Alliance'].map(h=><th key={h} style={{padding:'6px 10px',textAlign:'left',color:C.muted,fontWeight:700,fontSize:10}}>{h}</th>)}</tr></thead>
               <tbody>{topCands.map((c,i)=>{
-                const cidx = (data.candidateColumns||[]).indexOf(c.name);
-                const evmOff = cidx>=0 ? (data.evmCandidateTotals?.[cidx]||0) : c.evm;
-                const postalOff = cidx>=0 ? (data.postalVotes?.[cidx]||0) : c.postal;
-                const totalOff = cidx>=0 ? (data.candidateTotals?.[cidx]||0) : c.total;
+                const ac=AC[c.alliance]||C.others;
                 return <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
-                  <td style={{padding:'6px 10px',color:C.text}}>{c.name}</td>
-                  <td style={{padding:'6px 10px',color:AC[c.alliance]||C.others,fontWeight:700}}>{fmt(c.evm)}</td>
-                  <td style={{padding:'6px 10px',color:C.muted}}>{fmt(evmOff)}</td>
-                  <td style={{padding:'6px 10px',color:C.postal}}>{fmt(postalOff)}</td>
-                  <td style={{padding:'6px 10px',color:C.text,fontWeight:700}}>{fmt(totalOff)}</td>
-                  <td style={{padding:'6px 10px'}}><span style={{color:c.evm===evmOff?C.win:C.lose,fontWeight:700,fontSize:10}}>{c.evm===evmOff?'✓':'⚠'}</span></td>
+                  <td style={{padding:'6px 10px',color:C.text,fontWeight:600}}>{c.name}</td>
+                  <td style={{padding:'6px 10px'}}><PartyFlag party={c.party}/></td>
+                  <td style={{padding:'6px 10px',color:ac,fontWeight:700}}>{fmt(c.evm)}</td>
+                  <td style={{padding:'6px 10px',color:C.postal}}>{fmt(c.postal)}</td>
+                  <td style={{padding:'6px 10px',color:C.text,fontWeight:700}}>{fmt(c.total)}</td>
+                  <td style={{padding:'6px 10px'}}><Badge t={c.alliance} c={ac}/></td>
                 </tr>;
               })}</tbody>
             </table>
-            <p style={{color:C.muted,fontSize:10,marginTop:8}}>* Official figures from Form 20 summary row. EVM = sum of booth-level candidate votes.</p>
           </div>
         </Card>
         <Card>
@@ -1096,18 +1216,126 @@ function Dashboard({data, mapping}) {
             {[
               {l:'Total Electors (Form 20)',v:fmt(data.totalElectors||0),c:C.text},
               {l:'Total Booths Parsed',v:fmt(boothData.length),c:C.accent},
-              {l:'EVM Valid Votes',v:fmt(ourEVM),c:C.dmk},
-              {l:'Postal Valid Votes',v:fmt(ourPostal),c:C.postal},
-              {l:'Total Valid (EVM+Postal)',v:fmt(ourCombined),c:C.accent},
-              {l:'Turnout % (over Electors)',v:data.totalElectors>0 ? pct(ourCombined,data.totalElectors)+'%' : 'N/A',c:C.win},
-              {l:'NOTA Votes (EVM)',v:fmt(ourNOTA),c:C.nota},
+              {l:'EVM Candidate Votes',v:fmt(offEVM),c:C.dmk},
+              {l:'Postal Votes',v:fmt(offPostal),c:C.postal},
+              {l:'Total Valid Votes',v:fmt(offCombined),c:C.accent},
+              {l:'Turnout %',v:data.totalElectors>0 ? pct(offCombined,data.totalElectors)+'%' : 'N/A',c:C.win},
+              {l:'NOTA Votes',v:fmt(ourNOTA),c:C.nota},
               {l:'Rejected Votes',v:fmt(ourRejected),c:C.muted},
-              {l:'Grand Total from Form 20',v:fmt(data.totalVotesCast||ourCombined),c:C.text},
-              {l:'Winner Margin',v:fmt(Math.abs(totals.margin))+' ('+totals.leader.split(' ')[0]+')',c:C.win},
+              {l:'Winner',v:totals.leader.split(' ')[0]+' by '+fmt(Math.abs(totals.margin)),c:C.win},
+              {l:'Booth List Loaded',v:Object.keys(boothNames).length>0?`${Object.keys(boothNames).length} booths`:'Not loaded',c:Object.keys(boothNames).length>0?C.win:C.muted},
             ].map(({l,v,c})=>(
               <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
                 <span style={{color:C.muted,fontSize:12}}>{l}</span>
                 <span style={{color:c,fontSize:12,fontWeight:700}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
+  };
+
+  /* ── Campaign Strategy Tab ── */
+  const Strategy=()=>{
+    const dmkBooths=boothData.filter(b=>b.leader==='DMK');
+    const ndaBooths=boothData.filter(b=>b.leader==='NDA');
+    const critDmk=boothData.filter(b=>b.classification==='Critical'&&b.leader==='DMK');
+    const critNda=boothData.filter(b=>b.classification==='Critical'&&b.leader==='NDA');
+    const swgDmk=boothData.filter(b=>b.classification==='Swing'&&b.leader==='DMK');
+    const swgNda=boothData.filter(b=>b.classification==='Swing'&&b.leader==='NDA');
+    const flipTarget=critNda.concat(swgNda.slice(0,20)).sort((a,b)=>Math.abs(a.margin)-Math.abs(b.margin));
+    const defendTarget=critDmk.concat(swgDmk.filter(b=>Math.abs(b.margin)<b.total*0.08)).sort((a,b)=>Math.abs(a.margin)-Math.abs(b.margin));
+    const votesInFlip=flipTarget.reduce((s,b)=>s+Math.abs(b.margin),0);
+
+    return (
+      <div id="tab-content-strategy" style={{padding:20,display:'flex',flexDirection:'column',gap:14}}>
+        <Card>
+          <ST icon={Flag}>NDA Campaign Intelligence Summary</ST>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+            {[
+              {l:'NDA Leading',v:ndaBooths.length,c:C.nda,sub:`${pct(ndaBooths.length,boothData.length)}% booths`},
+              {l:'DMK Leading',v:dmkBooths.length,c:C.dmk,sub:`${pct(dmkBooths.length,boothData.length)}% booths`},
+              {l:'Flippable (NDA Target)',v:flipTarget.length,c:C.tnSaffron,sub:`Need ~${fmt(votesInFlip)} votes`},
+              {l:'Defend (NDA Thin)',v:defendTarget.length,c:C.lose,sub:'Margin < 8%'},
+            ].map(({l,v,c,sub})=>(
+              <div key={l} style={{background:c+'10',border:`1px solid ${c}25`,borderRadius:12,padding:'12px',textAlign:'center'}}>
+                <div style={{color:c,fontSize:22,fontWeight:800,fontFamily:"'Merriweather',serif"}}>{v}</div>
+                <div style={{color:C.text,fontSize:11,fontWeight:600}}>{l}</div>
+                <div style={{color:C.muted,fontSize:10}}>{sub}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <Card>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <ST icon={Target}>Flip Targets — DMK-held, close margin</ST>
+              <button onClick={()=>{
+                const h=['Priority','Booth','Locality','Pincode','Building','DMK Votes','NDA Votes','Margin','Total','Polling Area'];
+                const r=flipTarget.map((b,i)=>[i+1,b.booth,b.info?.locality||'',b.info?.pincode||'',b.info?.building||'',b['DMK Alliance'],b['NDA Alliance'],Math.abs(b.margin),b.total,(b.info?.area||'').replace(/\n/g,' | ')]);
+                downloadCSV(h,r,`${data.constituency.replace(/\s/g,'-')}-NDA-flip-targets.csv`);
+              }} style={{background:C.tnSaffron+'15',color:C.tnSaffron,border:`1px solid ${C.tnSaffron}33`,borderRadius:6,padding:'3px 10px',fontSize:10,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                <Download size={10}/> Export
+              </button>
+            </div>
+            <div style={{maxHeight:350,overflowY:'auto'}}>
+              {flipTarget.slice(0,25).map((b,i)=>(
+                <div key={b.booth} onClick={()=>{setTab('booths');setSelBooth(b.booth);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 4px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',borderLeft:`3px solid ${C.tnSaffron}`}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{background:'#FEF3C7',color:'#92400E',borderRadius:4,padding:'2px 6px',fontSize:9,fontWeight:700,minWidth:20,textAlign:'center'}}>{i+1}</span>
+                    <div>
+                      <p style={{color:C.text,fontSize:11,fontWeight:600}}>{b.info?.locality||`Booth ${b.booth}`}</p>
+                      <p style={{color:C.muted,fontSize:9}}>B{b.booth} · {fmt(b.total)} votes · Need {fmt(Math.abs(b.margin)+1)} to flip</p>
+                    </div>
+                  </div>
+                  <div style={{color:C.lose,fontSize:12,fontWeight:700}}>-{fmt(Math.abs(b.margin))}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <ST icon={Shield}>Defend — NDA-held, thin margin</ST>
+              <button onClick={()=>{
+                const h=['Priority','Booth','Locality','Pincode','Building','NDA Votes','DMK Votes','Margin','Total','Polling Area'];
+                const r=defendTarget.map((b,i)=>[i+1,b.booth,b.info?.locality||'',b.info?.pincode||'',b.info?.building||'',b['NDA Alliance'],b['DMK Alliance'],Math.abs(b.margin),b.total,(b.info?.area||'').replace(/\n/g,' | ')]);
+                downloadCSV(h,r,`${data.constituency.replace(/\s/g,'-')}-NDA-defend-booths.csv`);
+              }} style={{background:C.nda+'15',color:C.nda,border:`1px solid ${C.nda}33`,borderRadius:6,padding:'3px 10px',fontSize:10,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+                <Download size={10}/> Export
+              </button>
+            </div>
+            <div style={{maxHeight:350,overflowY:'auto'}}>
+              {defendTarget.slice(0,25).map((b,i)=>(
+                <div key={b.booth} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 4px',borderBottom:`1px solid ${C.border}`,borderLeft:`3px solid ${C.nda}`}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{background:C.nda+'15',color:C.nda,borderRadius:4,padding:'2px 6px',fontSize:9,fontWeight:700,minWidth:20,textAlign:'center'}}>{i+1}</span>
+                    <div>
+                      <p style={{color:C.text,fontSize:11,fontWeight:600}}>{b.info?.locality||`Booth ${b.booth}`}</p>
+                      <p style={{color:C.muted,fontSize:9}}>B{b.booth} · NDA leads by {fmt(Math.abs(b.margin))} · {pct(Math.abs(b.margin),b.total)}% gap</p>
+                    </div>
+                  </div>
+                  <div style={{color:C.win,fontSize:12,fontWeight:700}}>+{fmt(Math.abs(b.margin))}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        <Card>
+          <ST icon={BarChart2}>Alliance Dominance Map — Every Booth</ST>
+          <div style={{display:'flex',flexWrap:'wrap',gap:3,padding:'8px 0'}}>
+            {boothData.map(b=>(
+              <div key={b.booth} title={`B${b.booth} ${b.info?.locality||''}: ${b.leader} +${fmt(Math.abs(b.margin))}`}
+                style={{width:10,height:10,borderRadius:2,background:b.leader==='DMK'?C.dmk:C.nda,opacity:b.classification==='Critical'?0.4:b.classification==='Swing'?0.65:1,cursor:'pointer'}}
+                onClick={()=>{setTab('booths');setSelBooth(b.booth);}}/>
+            ))}
+          </div>
+          <div style={{display:'flex',gap:16,marginTop:8}}>
+            {[{l:'DMK Stronghold',c:C.dmk,o:1},{l:'DMK Swing',c:C.dmk,o:0.65},{l:'DMK Critical',c:C.dmk,o:0.4},{l:'NDA Stronghold',c:C.nda,o:1},{l:'NDA Swing',c:C.nda,o:0.65},{l:'NDA Critical',c:C.nda,o:0.4}].map(({l,c,o})=>(
+              <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
+                <div style={{width:10,height:10,borderRadius:2,background:c,opacity:o}}/><span style={{fontSize:9,color:C.muted}}>{l}</span>
               </div>
             ))}
           </div>
@@ -1124,6 +1352,7 @@ function Dashboard({data, mapping}) {
         {tab==='overview'   && <Overview/>}
         {tab==='booths'     && <Booths/>}
         {tab==='swing'      && <Swing/>}
+        {tab==='strategy'   && <Strategy/>}
         {tab==='candidates' && <Candidates/>}
         {tab==='trends'     && <Trends/>}
         {tab==='accuracy'   && <Accuracy/>}
